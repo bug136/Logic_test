@@ -1,16 +1,16 @@
  #include "stm32f10x.h"
 #include "Delay.h"
-#include "OLED.h"
+#include "M24C08.h"
 #include "W25Q64.h"
 
 /*
  * 逻辑分析仪波形演示（STM32F103C8，无重映射）
  *
- * OLED 0.9寸 SSD1306（本步先做 I2C 写）：
- *   PB6  I2C1_SCL   接 OLED SCL
- *   PB7  I2C1_SDA   接 OLED SDA
- *   7位地址 0x3C，写地址 0x78；写命令控制字节 0x00，写显存控制字节 0x40
- *   上电初始化后，周期性向左上角写入字符 'a'，便于抓写波形
+ * I2C1 ↔ 24C08 EEPROM：
+ *   PB6  I2C1_SCL   接 24C08 SCL
+ *   PB7  I2C1_SDA   接 24C08 SDA
+ *   写地址 0xA0，读地址 0xA1；字地址 8 位
+ *   上电向地址 0 写入 "hello"，循环里读回 5 字节，便于抓 I2C 读波形
  *
  * SPI1 ↔ W25Q64BV（3.3V，Mode 0）：
  *   PA4  CS    ↔ 芯片 /CS
@@ -47,16 +47,32 @@ int main(void)
 	uint8_t id1;
 	uint16_t id2;
 
+	uint8_t m24c08_addr_write = M24C08_ADDR_WRITE;   /* 0xA0 */
+	uint8_t m24c08_addr_read = M24C08_ADDR_READ;     /* 0xA1，读时由硬件置 R/W=1 */
+	uint8_t eeprom_w[5] = {'h', 'e', 'l', 'l', 'o'};
+	uint8_t eeprom_r[6];
+
+	(void)m24c08_addr_read;
+
 	Timer_PWM_Init();
 	USART_InitConfig();
 	W25Q64_Init();            /* SPI1 + 软件 CS */
-	OLED_Init();              /* I2C + SSD1306 初始化、清屏 */
+	M24C08_Init();            /* I2C1 + 24C08 */
 
 	W25Q64_DemoOnce();        /* 上电：读 ID，匹配则擦写读校验一次 */
 
+	/* 先写入 "hello"，后面循环只读。等价 HAL_I2C_Mem_Write(..., 0, 8BIT, "hello", 5, 1000) */
+	M24C08_Mem_Write(m24c08_addr_write, 0, eeprom_w, 5);
+
 	while (1)
 	{
-		OLED_WriteCharA();    /* I2C 写：左上角显示 'a'（分析仪看 PB6/PB7） */
+		/* 连续读 5 字节：等价 HAL_I2C_Mem_Read(..., 0, 8BIT, eeprom_r, 5, 1000) */
+		M24C08_Mem_Read(m24c08_addr_write, 0, eeprom_r, 5);
+		eeprom_r[5] = '\0';
+		USART1_SendString("EEPROM ");
+		USART1_SendString((char *)eeprom_r);
+		USART1_SendString("\r\n");
+
 		USART1_SendString("U STM32 UART\r\n");
 		USART2_SendRxTest();
 		Delay_us(200);
@@ -65,7 +81,7 @@ int main(void)
 		W25Q64_ReadID(&id1, &id2);   /* CS 低 → 9F → 回 3 字节 → CS 高 */
 		W25Q64_PrintID(id1, id2);
 
-		Delay_ms(200);        /* 间隔稍大，方便单独抓 OLED / SPI 波形 */
+		Delay_ms(200);
 	}
 }
 

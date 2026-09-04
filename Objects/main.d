@@ -29,5 +29,5 @@
 .\objects\main.o: .\Library\stm32f10x_wwdg.h
 .\objects\main.o: .\Library\misc.h
 .\objects\main.o: .\System\Delay.h
-.\objects\main.o: .\Hardware\OLED.h
+.\objects\main.o: .\Hardware\M24C08.h
 .\objects\main.o: .\Hardware\W25Q64.h
